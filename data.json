@@ -1,0 +1,29 @@
+{
+  "transcript": "\nSoftware as a Service is hands down the best business model in the world. But starting a SaaS business is really, really hard. Over the last 14 years of running MicroConf, I've met so many developers and entrepreneurs who dream of launching their own software business,",
+  "paragraphs": [
+    {
+      "sentences": [
+        {
+          "text": "Software as a Service is hands down the best business model in the world.",
+          "start": 0.39999998,
+          "end": 4.9
+        },
+        {
+          "text": "But starting a SaaS business is really, really hard.",
+          "start": 4.96,
+          "end": 8.5
+        },
+        {
+          "text": "Over the last 14 years of running MicroConf, I've met so many developers and entrepreneurs who dream of launching their own software business, but they just weren't sure where to start.",
+          "start": 8.559999,
+          "end": 18.315
+        },
+        {
+          "text": "Or maybe they did get started and they spent 6 months in their basement toiling away at an incredibly well engineered V1 of their app only to launch to crickets because the solution they built solved a problem that no one actually needed solving.",
+          "start": 18.315,
+          "end": 30.99
+        }
+      ]
+    }
+  ]
+}
