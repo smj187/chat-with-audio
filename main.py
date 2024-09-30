@@ -1,174 +1,294 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from haystack.document_stores.in_memory import InMemoryDocumentStore
-from haystack import Document
-from haystack.components.embedders import (
-    SentenceTransformersDocumentEmbedder,
-    SentenceTransformersTextEmbedder,
-)
-from haystack.components.retrievers.in_memory import InMemoryEmbeddingRetriever
-from haystack.components.builders import PromptBuilder
-from haystack.components.generators import OpenAIGenerator
-from haystack import Pipeline
-from pathlib import Path
+from fastapi import FastAPI, File, UploadFile, Form, Request
 from dotenv import load_dotenv
 import os
+from deepgram import (
+    DeepgramClient,
+    DeepgramClientOptions,
+    PrerecordedOptions,
+    FileSource,
+)
+import httpx
+import json
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.docstore.document import Document
+from langchain.vectorstores import Pinecone
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+import tiktoken
+from pinecone import Pinecone
+import os
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-CORPUS_DOCUMENTS_PATH = "./data"
-CORPUS_DOCUMENTS_FILE_EXT = "txt"
-TEXT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-OPENAI_GENERATOR_MODEL = "gpt-4o-mini"
 
-if "OPENAI_API_KEY" not in os.environ:
-    raise ValueError(f"OPENAI_API_KEY environment variable is not set")
+# NOTE: there was an update and now the Pinecone client requires the following simplified setup
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index_name = "chatbot"
+index = pc.Index(index_name)
 
-# FastAPI app initialization
+
 app = FastAPI()
+origins = [
+    "http://localhost:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+config = DeepgramClientOptions(verbose=0)
+deepgram = DeepgramClient(os.getenv("DEEPGRAM_API_KEY"), config)
 
 
-# Request body for the API
-class QuestionRequest(BaseModel):
-    question: str
-
-
-# Step 1: Create the document store
-def create_document_store() -> InMemoryDocumentStore:
-    print("Instantiating RAG document store")
-    document_store = InMemoryDocumentStore()
-    return document_store
-
-
-# Step 2: Read documents and embed them
-def embed_documents(document_store: InMemoryDocumentStore) -> None:
-    doc_files = Path(CORPUS_DOCUMENTS_PATH).glob(f"**/*.{CORPUS_DOCUMENTS_FILE_EXT}")
-    print(f"Loaded documents for RAG: {doc_files}")
-
-    doc_contents = [f.read_text() for f in doc_files]
-    docs = [Document(content=content) for content in doc_contents]
-
-    doc_embedder = create_document_embedder()
-    doc_embedder.warm_up()
-    docs_with_embeddings = doc_embedder.run(docs)
-    document_store.write_documents(docs_with_embeddings["documents"])
-
-
-def create_document_embedder() -> SentenceTransformersDocumentEmbedder:
-    print(f"Embedding documents with {TEXT_EMBEDDING_MODEL}")
-    document_embedder = SentenceTransformersDocumentEmbedder(
-        model=TEXT_EMBEDDING_MODEL,
-    )
-    return document_embedder
-
-
-def create_text_embedder() -> SentenceTransformersTextEmbedder:
-    print(f"Embedding text with {TEXT_EMBEDDING_MODEL}")
-    text_embedder = SentenceTransformersTextEmbedder(
-        model=TEXT_EMBEDDING_MODEL,
-    )
-    return text_embedder
-
-
-# Step 4: Create the retriever
-def create_retriever(
-    document_store: InMemoryDocumentStore,
-) -> InMemoryEmbeddingRetriever:
-    retriever = InMemoryEmbeddingRetriever(document_store=document_store)
-    return retriever
-
-
-# Step 5: Create the prompt builder
-def create_prompt_builder() -> PromptBuilder:
-    template = """
-    Given the following information, answer the question.
-
-    Context:
-    {% for document in documents %}
-        {{ document.content }}
-    {% endfor %}
-
-    Question: {{question}}
-    Answer:
-    """
-    print(f"Instantiating prompt template:\n{template}")
-    prompt_builder = PromptBuilder(template=template)
-    return prompt_builder
-
-
-# Step 6: Create the generator (OpenAI-based)
-def create_generator() -> OpenAIGenerator:
-    print(f"Instantiating OpenAI generator with model {OPENAI_GENERATOR_MODEL}")
-    generator = OpenAIGenerator(model=OPENAI_GENERATOR_MODEL)
-    return generator
-
-
-# Step 7: Build the RAG pipeline
-def create_rag_pipeline(
-    text_embedder: SentenceTransformersTextEmbedder,
-    retriever: InMemoryEmbeddingRetriever,
-    prompt_builder: PromptBuilder,
-    generator: OpenAIGenerator,
-) -> Pipeline:
-    print("Building RAG pipeline")
-
-    rag_pipeline = Pipeline()
-    rag_pipeline.add_component("text_embedder", text_embedder)
-    rag_pipeline.add_component("retriever", retriever)
-    rag_pipeline.add_component("prompt_builder", prompt_builder)
-    rag_pipeline.add_component("llm", generator)
-
-    # Connect components in the pipeline
-    rag_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
-    rag_pipeline.connect("retriever", "prompt_builder.documents")
-    rag_pipeline.connect("prompt_builder", "llm")
-
-    print(f"Done building RAG pipeline: {rag_pipeline}")
-
-    return rag_pipeline
-
-
-# Load the pipeline on startup and store it in `app.state`
-@app.on_event("startup")
-async def load_pipeline():
-    document_store = create_document_store()
-    embed_documents(document_store)
-
-    text_embedder = create_text_embedder()
-    retriever = create_retriever(document_store)
-    prompt_builder = create_prompt_builder()
-    generator = create_generator()
-
-    rag_pipeline = create_rag_pipeline(
-        text_embedder=text_embedder,
-        retriever=retriever,
-        prompt_builder=prompt_builder,
-        generator=generator,
-    )
-
-    # Store the pipeline in the app's state
-    app.state.rag_pipeline = rag_pipeline
-
-
-# Define the endpoint for answering questions
-@app.post("/ask")
-async def ask_question(request: QuestionRequest):
-    try:
-        # Access the pipeline from the app's state
-        rag_pipeline: Pipeline = app.state.rag_pipeline
-        question = request.question
-        response = rag_pipeline.run(
-            {
-                "text_embedder": {"text": question},
-                "prompt_builder": {"question": question},
-            }
-        )
-        return {"answer": response["llm"]["replies"][0]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Health check endpoint
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.post("/transcribe")
+async def transcribe_audio(key: str = Form(...), file: UploadFile = File(...)):
+    audio_bytes = await file.read()
+    payload: FileSource = {
+        "buffer": audio_bytes,
+        "mimetype": file.content_type,
+    }
+    options = PrerecordedOptions(
+        model="nova-2",
+        smart_format=True,
+        punctuate=True,
+        paragraphs=True,
+        summarize=False,
+        topics=False,
+    )
+    response = await deepgram.listen.asyncrest.v("1").transcribe_file(
+        payload, options, timeout=httpx.Timeout(300.0, connect=10.0)
+    )
+    with open(f"{key}_results.json", "w", encoding="utf-8") as f:
+        json.dump(response, f, indent=4)
+    return response
+
+
+def chunk_paragraphs_func(paragraphs):
+    documents = []
+    for paragraph in paragraphs:
+        for sentence in paragraph.get("sentences", []):
+            doc = Document(
+                page_content=sentence["text"],
+                metadata={
+                    "start": sentence["start"],
+                    "end": sentence["end"],
+                },
+            )
+            documents.append(doc)
+
+    def count_tokens(text, model_name="text-embedding-ada-002"):
+        encoding = tiktoken.encoding_for_model(model_name)
+        return len(encoding.encode(text))
+
+    sentences = []
+    for doc in documents:
+        text = doc.page_content
+        tokens = count_tokens(text)
+        sentences.append({"text": text, "tokens": tokens, "metadata": doc.metadata})
+
+    max_tokens = 1000
+    overlap_tokens = 100
+    chunks = []
+    current_chunk = []
+    current_token_count = 0
+
+    for sentence in sentences:
+        sentence_tokens = sentence["tokens"]
+        if current_token_count + sentence_tokens > max_tokens:
+            chunk_text = " ".join([s["text"] for s in current_chunk])
+            chunk_metadata = {
+                "start": current_chunk[0]["metadata"]["start"],
+                "end": current_chunk[-1]["metadata"]["end"],
+            }
+            chunk_doc = Document(page_content=chunk_text, metadata=chunk_metadata)
+            chunks.append(chunk_doc)
+
+            overlap = []
+            overlap_token_count = 0
+            i = len(current_chunk) - 1
+            while i >= 0 and overlap_token_count < overlap_tokens:
+                overlap.insert(0, current_chunk[i])
+                overlap_token_count += current_chunk[i]["tokens"]
+                i -= 1
+            current_chunk = overlap.copy()
+            current_token_count = overlap_token_count
+
+        current_chunk.append(sentence)
+        current_token_count += sentence_tokens
+
+    if current_chunk:
+        chunk_text = " ".join([s["text"] for s in current_chunk])
+        chunk_metadata = {
+            "start": current_chunk[0]["metadata"]["start"],
+            "end": current_chunk[-1]["metadata"]["end"],
+        }
+        chunk_doc = Document(page_content=chunk_text, metadata=chunk_metadata)
+        chunks.append(chunk_doc)
+
+    return chunks
+
+
+def insert_into_pinecone(chunks):
+    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+    texts = [chunk.page_content for chunk in chunks]
+    metadatas = [chunk.metadata for chunk in chunks]
+
+    batch_size = 100
+    all_embeddings = []
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i : i + batch_size]
+        batch_embeddings = embeddings.embed_documents(batch_texts)
+        all_embeddings.extend(batch_embeddings)
+
+    vectors = []
+    for i, (embedding, metadata) in enumerate(zip(all_embeddings, metadatas)):
+        vector_id = f"vec_{i}"
+        metadata["text"] = texts[i]
+        vectors.append({"id": vector_id, "values": embedding, "metadata": metadata})
+
+    for i in range(0, len(vectors), batch_size):
+        batch = vectors[i : i + batch_size]
+        index.upsert(vectors=batch)
+
+
+def chunk_paragraphs_func_insert_pinecone(paragraphs):
+    chunks = chunk_paragraphs_func(paragraphs)
+    insert_into_pinecone(chunks)
+    return len(chunks)
+
+
+@app.post("/chunk")
+async def chunk_paragraphs(request: Request):
+    data = await request.json()
+    paragraphs = data.get("paragraphs")
+    num_chunks = chunk_paragraphs_func_insert_pinecone(paragraphs)
+    return {"num_chunks": num_chunks}
+
+
+import re
+import json
+from sentence_transformers import SentenceTransformer, util
+import pandas as pd
+import torch
+
+from langchain.vectorstores import Pinecone
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+
+embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+vectorstore = Pinecone(index, embeddings.embed_query, "text")
+retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+
+
+template = """
+The answer should be short, concise and directly related to the question and not contain filler words. 
+Given the following information, answer the question. 
+Use the information from the documents to support your answer. 
+Do not use any external information or make up any information. 
+If you don't know the answer, write "I don't know".
+
+
+Context:
+{context}
+
+Question: {question}
+Answer:
+"""
+
+prompt = PromptTemplate(template=template, input_variables=["context", "question"])
+
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",  # You can also try "map_reduce" or "refine" if needed
+    retriever=retriever,
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": prompt},
+)
+
+
+@app.post("/ask")
+async def chat(request: Request):
+    data = await request.json()
+    question = data.get("question")
+
+    with open("./data/paragraphs.json", "r", encoding="utf-8") as json_file:
+        paragraphs = json.load(json_file)
+
+    result = qa_chain(question)
+    print("Answer:", result["result"])
+
+    # Load the sentence transformer model
+    model = SentenceTransformer(
+        "sentence-transformers/all-mpnet-base-v2"
+    )  # Upgraded model
+
+    # Load paragraphs.json
+    with open("./data/paragraphs.json", "r", encoding="utf-8") as json_file:
+        paragraphs = json.load(json_file)
+
+    # Extract sentences and their timestamps from paragraphs.json
+    text_sentences = []
+    timestamps = []
+
+    for paragraph in paragraphs:
+        for sentence in paragraph["sentences"]:
+            text_sentences.append(sentence["text"])
+            timestamps.append((sentence["start"], sentence["end"]))
+
+    # Assuming 'result' contains the answer text that you want to find matches for
+    answer = result["result"]
+
+    # Split the answer into sentences using a simple regex-based approach
+    def split_into_sentences(text):
+        # This splits on punctuation that usually ends a sentence followed by space
+        return re.split(r"(?<=[.!?])\s+", text)
+
+    # Split the answer into sentences
+    answer_sentences = split_into_sentences(answer)
+
+    # Encode sentences from the text once
+    text_embeddings = model.encode(text_sentences, convert_to_tensor=True)
+
+    # Prepare a list to hold all matching results
+    all_matches = []
+
+    # For each sentence in the answer, find the top 3 most similar sentences in the text
+    for ans_sentence in answer_sentences:
+        ans_embedding = model.encode(ans_sentence, convert_to_tensor=True)
+        # Compute cosine similarities between the answer sentence and all text sentences
+        cosine_scores = util.cos_sim(ans_embedding, text_embeddings)[0]
+        # Get the top 3 matches
+        top_results = torch.topk(cosine_scores, k=3)
+        for idx, score in zip(top_results.indices, top_results.values):
+            all_matches.append(
+                {
+                    "matched": text_sentences[idx],
+                    "score": score.item(),
+                    "start": timestamps[idx][0],
+                    "end": timestamps[idx][1],
+                }
+            )
+
+    all_matches = sorted(all_matches, key=lambda x: x["score"])
+    top_matches = all_matches[:10]
+    top_matches_json = json.dumps(top_matches, indent=2)
+    # print(top_matches_json)
+    return {
+        "top_matches": top_matches,
+        "answer": result["result"],
+    }
