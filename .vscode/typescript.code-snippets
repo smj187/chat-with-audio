@@ -1,0 +1,38 @@
+{
+  "react functional component": {
+    "prefix": "rfc",
+    "description": "",
+    "body": [
+      "interface Props {",
+      "    $3",
+      "}",
+      "",
+      "export const ${1:${TM_FILENAME_BASE/(^\\w+)|(\\w+)|(-)/${1:/pascalcase}${2:/capitalize}/g}}: React.FC<Props> = () => {",
+      "  return (<div>$2</div>)",
+      "}",
+      ""
+    ]
+  },
+  "react functional component with null selection": {
+    "prefix": "fc",
+    "description": "Create a React functional component with null return and select null",
+    "body": [
+      "const ${TM_FILENAME_BASE/(^\\w+)|(\\w+)|(-)/${1:/pascalcase}${2:/capitalize}/g}: React.FC = () => {",
+      "  return ${1:null};",
+      "}"
+    ]
+  },
+  "react functional component with interface Props": {
+    "prefix": "fcc",
+    "description": "Create a React functional component with interface Props and null return",
+    "body": [
+      "interface Props {",
+      "  $2",
+      "}",
+      "",
+      "const ${TM_FILENAME_BASE/(^\\w+)|(\\w+)|(-)/${1:/pascalcase}${2:/capitalize}/g}: React.FC<Props> = ($3) => {",
+      "  return ${1:null};",
+      "}"
+    ]
+  }
+}

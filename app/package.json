@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --port 3000",
+    "build": "tsc -b && vite build --port 3000",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -13,7 +13,10 @@
     "@chakra-ui/react": "^2.8.2",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
+    "@kinde-oss/kinde-auth-react": "^4.0.4",
     "@remotion/player": "^4.0.213",
+    "@tanstack/react-query": "^5.59.13",
+    "axios": "^1.7.7",
     "framer-motion": "^11.8.0",
     "konva": "^9.3.15",
     "lodash": "^4.17.21",
@@ -21,14 +24,19 @@
     "peaks.js": "^3.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
     "remotion": "^4.0.213",
-    "waveform-data": "^4.5.0"
+    "waveform-data": "^4.5.0",
+    "wavesurfer.js": "^7.8.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
+    "@tanstack/react-query-devtools": "^5.59.13",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@types/react-router-dom": "^5.3.3",
+    "@types/wavesurfer.js": "^6.0.12",
     "@vitejs/plugin-react-swc": "^3.5.0",
     "eslint": "^9.9.0",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",

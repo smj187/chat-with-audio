@@ -1,0 +1,5 @@
+"fastapi[standard]"
+pinecone
+langchain-community
+sentence-transformers
+openai

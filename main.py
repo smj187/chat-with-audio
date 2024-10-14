@@ -59,20 +59,21 @@ async def transcribe_audio(key: str = Form(...), file: UploadFile = File(...)):
         "buffer": audio_bytes,
         "mimetype": file.content_type,
     }
+
     options = PrerecordedOptions(
         model="nova-2",
+        language="en",
+        summarize="v2",
+        topics=False,  # use this later
         smart_format=True,
         punctuate=True,
         paragraphs=True,
-        summarize=False,
-        topics=False,
     )
-    response = await deepgram.listen.asyncrest.v("1").transcribe_file(
-        payload, options, timeout=httpx.Timeout(300.0, connect=10.0)
-    )
-    with open(f"{key}_results.json", "w", encoding="utf-8") as f:
-        json.dump(response, f, indent=4)
-    return response
+
+    response = deepgram.listen.prerecorded.v("1").transcribe_file(payload, options)
+
+    summary = response["results"]["summary"]
+    return response["results"]
 
 
 def chunk_paragraphs_func(paragraphs):
