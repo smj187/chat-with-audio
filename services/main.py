@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
 from pinecone import Pinecone
+from langchain.vectorstores import Pinecone as VectorStore
 from langchain.docstore.document import Document
 from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
@@ -136,6 +137,7 @@ async def upsert_data(request: UpsertRequestModel):
         chunk_metadata = {
             "start": current_chunk[0]["metadata"]["start"],
             "end": current_chunk[-1]["metadata"]["end"],
+            "project_id": request.project_id,
         }
         chunk_doc = Document(page_content=chunk_text, metadata=chunk_metadata)
         chunks.append(chunk_doc)
@@ -184,8 +186,10 @@ class AskRequestModel(BaseModel):
 @app.post("/ask")
 async def chat(request: AskRequestModel):
 
-    vectorstore = Pinecone(pinecone_index, embeddings.embed_query, "text")
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    vectorstore = VectorStore(pinecone_index, embeddings.embed_query, "text")
+    retriever = vectorstore.as_retriever(
+        search_kwargs={"k": 3}, namespace=request.project_id
+    )
     llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
 
     template = """
@@ -237,7 +241,13 @@ async def chat(request: AskRequestModel):
         return re.split(r"(?<=[.!?])\s+", text)
 
     answer = result["result"]
+    if not answer:
+        return {"answer": "I don't know", "matches": []}
+
     answer_sentences = split_into_sentences(answer)
+
+    if not sentences or answer == "I don't know.":
+        return {"answer": answer, "matches": []}
 
     text_embeddings = model.encode(sentences, convert_to_tensor=True)
 
@@ -246,20 +256,39 @@ async def chat(request: AskRequestModel):
     for ans_sentence in answer_sentences:
         ans_embedding = model.encode(ans_sentence, convert_to_tensor=True)
         cosine_scores = util.cos_sim(ans_embedding, text_embeddings)[0]
-        top_results = torch.topk(cosine_scores, k=10)
+
+        # Ensure there are elements to select
+        num_scores = cosine_scores.size(0)
+        if num_scores == 0:
+            continue  # Skip if no scores are available
+
+        k = min(10, num_scores)
+        top_results = torch.topk(cosine_scores, k=k)
 
         for idx, score in zip(top_results.indices, top_results.values):
             all_matches.append(
                 {
                     "score": score.item(),
-                    "start": timestamps[idx][0],
-                    "end": timestamps[idx][1],
+                    "start": timestamps[idx.item()][0],
+                    "end": timestamps[idx.item()][1],
                 }
             )
 
-    all_matches = sorted(all_matches, key=lambda x: x["score"], reverse=True)
+    if not all_matches:
+        return {"answer": answer, "matches": []}
 
-    top_matches = all_matches[:10]
+    # Remove duplicates by using a set of tuples (start, end)
+    unique_matches = {}
+    for match in all_matches:
+        key = (match["start"], match["end"])
+        if key not in unique_matches or match["score"] > unique_matches[key]["score"]:
+            unique_matches[key] = match
+
+    sorted_matches = sorted(
+        unique_matches.values(), key=lambda x: x["score"], reverse=True
+    )
+    top_matches = sorted_matches[:10]
+
     return {
         "answer": answer,
         "matches": top_matches,

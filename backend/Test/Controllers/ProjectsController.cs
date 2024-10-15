@@ -35,6 +35,14 @@ public class ProjectsController(ISender sender) : ApiControllerBase
         return project.Match(Ok, Problem);
     }
 
+    [HttpPost]
+    [Route("{projectId}/ask")]
+    public async Task<IActionResult> AskQuestionAsync([FromHeader(Name = "USER-ID"), Required] string userId, [FromRoute, Required] Guid projectId, [FromBody, Required] AskRequestModel request)
+    {
+        var question = await _sender.Send(new AskCommand(request.Question, userId, projectId));
+        return question.Match(Ok, Problem);
+    }
+
     [HttpGet]
     [Route("{projectId}")]
     public async Task<IActionResult> FindProjectAsync([FromHeader(Name = "USER-ID"), Required] string userId, [FromRoute, Required] Guid projectId)

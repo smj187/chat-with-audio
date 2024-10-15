@@ -70,6 +70,11 @@ builder.Services.AddHttpClient("deepgram_service", config =>
     var apiKey = builder.Configuration.GetValue<string>("Deepgram_ApiKey") ?? throw new Exception("Missing configuration string");
     config.DefaultRequestHeaders.Add("Authorization", $"Token {apiKey}");
 });
+builder.Services.AddHttpClient("cognitive_service", config =>
+{
+    var baseUrl = builder.Configuration.GetValue<string>("CognitiveService_BaseUrl") ?? throw new Exception("Missing configuration string");
+    config.BaseAddress = new Uri(baseUrl);
+});
 
 // services
 builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();

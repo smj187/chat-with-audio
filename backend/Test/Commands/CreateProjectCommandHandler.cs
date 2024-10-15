@@ -18,13 +18,15 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
     private readonly Client _supabase;
     private readonly IBlobStorageService _blobStorageService;
     private readonly ITranscriptionService _transcriptionService;
+    private readonly IHttpClientFactory _factory;
 
-    public CreateProjectCommandHandler(ILogger<CreateProjectCommandHandler> logger, Client supabase, IBlobStorageService blobStorageService, ITranscriptionService transcriptionService)
+    public CreateProjectCommandHandler(ILogger<CreateProjectCommandHandler> logger, Client supabase, IBlobStorageService blobStorageService, ITranscriptionService transcriptionService, IHttpClientFactory factory)
     {
         _logger = logger;
         _supabase = supabase;
         _blobStorageService = blobStorageService;
         _transcriptionService = transcriptionService;
+        _factory = factory;
     }
 
     public async Task<ErrorOr<ProjectResponseModel>> Handle(CreateProjectCommand request, CancellationToken cancellationToken)
@@ -32,6 +34,8 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
         try
         {
             var newId = Guid.NewGuid();
+
+            
 
             var audioBlobName = $"{request.UserId}/audio_{newId}{Path.GetExtension(request.AudioFile.FileName).ToLowerInvariant()}";
             var metadata = new Dictionary<string, string> { { "USER-ID", request.UserId.ToString() } };
@@ -58,6 +62,25 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
             var transcriptionUploaded = await _blobStorageService.UploadStreamAsync(transcriptionBlobName, transcriptionStream, "application/json", metadata);
             Console.WriteLine(transcriptionUploaded.ToString());
 
+            // upsert data
+            var client = _factory.CreateClient("cognitive_service");
+            var body = new
+            {
+                url = transcriptionUploaded.ToString(),
+                project_id = newId.ToString(),
+            };
+            var jsonBody = JsonConvert.SerializeObject(body);
+            var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+            // Send the POST request
+            var response = await client.PostAsync("upsert", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError($"Failed to send transcription to cognitive service: {response.StatusCode}");
+                return Error.Failure(description: "Failed to send transcription to cognitive service.");
+            }
+
             stream.Position = 0;
             var uploaded = await _blobStorageService.UploadStreamAsync(audioBlobName, stream, request.AudioFile.ContentType, metadata);
 
@@ -65,14 +88,18 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
 
             var newProject = new ProjectModel
             {
+                Id = newId,
                 UserId = request.UserId,
                 Name = request.Name,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = null,
+                AudioFileName = audioBlobName,
+                TranscriptionFileName = transcriptionBlobName,
             };
 
             var db = await _supabase.From<ProjectModel>().Insert(newProject);
             var createdProject = db.Models.First();
+
 
             return new ProjectResponseModel
             {
