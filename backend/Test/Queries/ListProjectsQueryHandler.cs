@@ -33,6 +33,7 @@ internal sealed class ListProjectsQueryHandler : IRequestHandler<ListProjectsQue
                 Name = x.Name,
                 CreatedAt = x.CreatedAt,
                 UpdatedAt = x.UpdatedAt,
+                Duration = x.Duration,
             }).ToList();
         }
         catch (Exception ex)

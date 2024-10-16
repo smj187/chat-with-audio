@@ -1,5 +1,7 @@
 import { useParams } from "react-router-dom"
 import { ProjectLayout } from "../components/project-layout"
+import { useFindProject } from "../api/useFindProject"
+import { useKindeAuth } from "@kinde-oss/kinde-auth-react"
 
 const createLabel = (text: string): HTMLElement => {
   const labelContainer = document.createElement("div")
@@ -23,31 +25,36 @@ const createLabel = (text: string): HTMLElement => {
   return labelContainer
 }
 
-const ProjectView: React.FC = () => {
-  const { projectId } = useParams<{ projectId: string }>()
+const ProjectView: React.FC<{ userId: string; projectId: string }> = ({
+  userId,
+  projectId
+}) => {
+  const { data } = useFindProject(userId, projectId)
 
-  const duration = 613.929796
-  const regions = [
-    {
-      start: 240,
-      end: 300,
-      label: "this i test"
-    },
-    {
-      start: 540,
-      end: 600,
-      label: "this i test"
-    }
-  ]
+  if (!data) return null
 
   return (
     <>
-      <ProjectLayout url="/audio.mp3" duration={duration} regions={regions} />
+      <ProjectLayout
+        audioUrl={data.audio_file_url}
+        transcriptionUrl={data.transcription_file_url}
+        projectName={data.name}
+        projectId={data.id}
+        userId={userId}
+        duration={data.duration}
+      />
     </>
   )
 }
 export function Component() {
-  return <ProjectView />
+  const { getUser } = useKindeAuth()
+  const user = getUser()
+
+  const { projectId } = useParams<{ projectId: string }>()
+
+  if (!user.id || !projectId) return null
+
+  return <ProjectView userId={user.id} projectId={projectId} />
 }
 
 Component.displayName = "ProjectView"

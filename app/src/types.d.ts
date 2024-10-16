@@ -69,12 +69,29 @@ export interface Summary {
 export interface ProjectResponseModel {
   id: string
   name: string
-  audio_files: {
-    id: string
-    base_name: string
-    audio_file_url: string
-    dat_file_url: string
-    transcription_file_url: string
-    created_at: string
-  }[]
+  user_id: string
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ProjectDetailResponseModel {
+  id: string
+  name: string
+  user_id: string
+  audio_file_url: string
+  transcription_file_url: string
+  created_at: string
+  updated_at: string | null
+  duration: number
+}
+
+export interface AskQuestionResponseModel {
+  answer: string
+  matches: AskQuestionMatch[]
+}
+
+export interface AskQuestionMatch {
+  score: number
+  start: number
+  end: number
 }

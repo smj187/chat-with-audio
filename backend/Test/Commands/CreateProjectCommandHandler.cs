@@ -3,6 +3,7 @@ using AppService.API.Models;
 using AppService.API.Services;
 using ErrorOr;
 using MediatR;
+using NAudio.Wave;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using Supabase;
@@ -44,7 +45,24 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
             await request.AudioFile.CopyToAsync(stream, cancellationToken);
             stream.Position = 0;
 
+            decimal durationInSeconds = 0;
+            try
+            {
+                // Reset stream position
+                stream.Position = 0;
 
+                // Example for MP3
+                using var mp3Reader = new Mp3FileReader(stream);
+                TimeSpan duration = mp3Reader.TotalTime;
+                durationInSeconds = (decimal)duration.TotalSeconds;
+
+                _logger.LogInformation($"Calculated audio duration: {durationInSeconds} seconds.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to calculate audio duration.");
+                return Error.Failure(description: "Failed to calculate audio duration.");
+            }
 
             var transcription = await _transcriptionService.TranscribeAsync(stream, request.AudioFile.ContentType);
             if (transcription.IsError)
@@ -95,6 +113,7 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
                 UpdatedAt = null,
                 AudioFileName = audioBlobName,
                 TranscriptionFileName = transcriptionBlobName,
+                Duration = durationInSeconds
             };
 
             var db = await _supabase.From<ProjectModel>().Insert(newProject);
@@ -108,6 +127,9 @@ internal sealed class CreateProjectCommandHandler : IRequestHandler<CreateProjec
                 Name = createdProject.Name,
                 CreatedAt = createdProject.CreatedAt,
                 UpdatedAt = createdProject.UpdatedAt,
+                Duration = createdProject.Duration,
+                TranscriptionFileUrl = transcriptionUploaded.ToString(),
+                AudioFileUrl = uploaded.ToString()
             };
         }
         catch (Exception ex)

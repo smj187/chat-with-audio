@@ -20,6 +20,8 @@ public class ProjectModel : BaseModel
 
     [Column("transcription_file_name")]
     public string TranscriptionFileName { get; set; }
+    [Column("duration")]
+    public decimal Duration { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

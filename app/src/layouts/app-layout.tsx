@@ -66,12 +66,12 @@ export const AppLayout: React.FC<Props> = () => {
     <PageRefreshSpinner />
   ) : (
     <QueryClientProvider client={queryClient}>
-      {import.meta.env.MODE !== "production" && (
+      {/* {import.meta.env.MODE !== "production" && (
         <ReactQueryDevtools
           initialIsOpen={false}
           buttonPosition="bottom-left"
         />
-      )}
+      )} */}
 
       <Outlet />
     </QueryClientProvider>
